@@ -327,10 +327,15 @@ describe("E2E: delete_note", () => {
         assert.equal(text, "Note not found: archive/never-existed.md");
     });
 
-    it("deletes a note", async () => {
+    it("deletes a note (soft delete into the trash folder)", async () => {
         const text = await callTool("delete_note", { path: "archive/ci-test.md" });
-        assert.ok(text.includes("Deleted"));
+        assert.ok(text.includes("Moved to trash"), text);
         assert.ok(!existsSync(join(vaultDir, "archive/ci-test.md")));
+        const trashed = text.match(/→ (\S+\.md)/)![1];
+        assert.ok(existsSync(join(vaultDir, trashed)));
+        const gone = await callTool("delete_note", { path: trashed, permanent: true });
+        assert.ok(gone.includes("Deleted permanently"), gone);
+        assert.ok(!existsSync(join(vaultDir, trashed)));
     });
 });
 
@@ -392,10 +397,10 @@ describe("E2E: READ_ONLY mode", () => {
 
         const list = await mcpCall("tools/list", {});
         const tools: string[] = (list?.result?.tools ?? []).map((t: any) => t.name);
-        for (const w of ["write_note", "edit_note", "delete_note", "move_note"]) {
+        for (const w of ["write_note", "edit_note", "edit_section", "set_frontmatter", "delete_note", "move_note", "rename_folder"]) {
             assert.ok(!tools.includes(w), `${w} should not be registered in READ_ONLY mode`);
         }
-        for (const r of ["read_note", "list_notes", "list_folders", "list_tags", "get_note_metadata"]) {
+        for (const r of ["read_note", "read_notes", "read_section", "list_notes", "list_folders", "list_tags", "get_note_metadata", "list_attachments", "read_attachment"]) {
             assert.ok(tools.includes(r), `${r} should remain available in READ_ONLY mode`);
         }
 

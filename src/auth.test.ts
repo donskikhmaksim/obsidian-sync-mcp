@@ -507,16 +507,38 @@ describe("Token Refresh", () => {
         // New token works
         assert.ok(validateToken(`Bearer ${newTokens.access_token}`));
 
-        // Old refresh token no longer works
-        const resp2 = await app.request("/oauth/token", {
+        const refresh = (refresh_token: string) =>
+            app.request("/oauth/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ grant_type: "refresh_token", refresh_token }).toString(),
+            });
+
+        // Reusing the just-rotated refresh token (a retry, a parallel session)
+        // returns the current pair instead of logging the client out.
+        const resp2 = await refresh(tokens.refresh_token);
+        assert.equal(resp2.status, 200);
+        const again = (await resp2.json()) as any;
+        assert.equal(again.access_token, newTokens.access_token);
+        assert.equal(again.refresh_token, newTokens.refresh_token);
+
+        // Once the newer pair has itself been rotated, the oldest token is dead.
+        const resp3 = await refresh(newTokens.refresh_token);
+        assert.equal(resp3.status, 200);
+        const third = (await resp3.json()) as any;
+        assert.equal((await refresh(tokens.refresh_token)).status, 400);
+        assert.ok(validateToken(`Bearer ${third.access_token}`));
+        assert.equal(validateToken(`Bearer ${newTokens.access_token}`), false);
+    });
+
+    it("rejects an unknown refresh token", async () => {
+        const { app } = setup();
+        const resp = await app.request("/oauth/token", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: new URLSearchParams({
-                grant_type: "refresh_token",
-                refresh_token: tokens.refresh_token,
-            }).toString(),
+            body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: "nope" }).toString(),
         });
-        assert.equal(resp2.status, 400);
+        assert.equal(resp.status, 400);
     });
 });
 

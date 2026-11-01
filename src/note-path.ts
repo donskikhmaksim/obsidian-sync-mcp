@@ -68,3 +68,46 @@ export function isValidNotePath(path: string): boolean {
         return false;
     }
 }
+
+/**
+ * Attachments the attachment tools may list, read and move. Kept to images
+ * and PDFs: the formats a model client can actually look at.
+ */
+export const ATTACHMENT_MIME_TYPES: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    svg: "image/svg+xml",
+    pdf: "application/pdf",
+};
+
+export function attachmentMimeType(path: string): string | null {
+    const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+    return path.includes(".") ? ATTACHMENT_MIME_TYPES[ext] ?? null : null;
+}
+
+/** Same safety rules as notes (no '..', ':', leading '/', dot-segments), but for image/PDF files. */
+export function validateAttachmentPath(path: string): void {
+    if (!path || path.length > 1000) throw new Error("Invalid attachment path");
+    if (path.startsWith("/") || path.includes("\0") || path.includes("..")) throw new Error("Invalid attachment path");
+    if (path.includes(":")) throw new Error("Invalid attachment path: ':' is not allowed");
+    if (!attachmentMimeType(path)) {
+        throw new Error(`Invalid attachment path: supported types are ${Object.keys(ATTACHMENT_MIME_TYPES).join(", ")}`);
+    }
+    for (const segment of path.split(/[/\\]/)) {
+        if (segment === "") throw new Error("Invalid attachment path: empty path segment");
+        if (segment.startsWith(".")) throw new Error("Invalid attachment path: dot-folders and hidden files are not allowed");
+    }
+}
+
+export function isValidAttachmentPath(path: string): boolean {
+    try {
+        validateAttachmentPath(path);
+        return true;
+    } catch {
+        return false;
+    }
+}

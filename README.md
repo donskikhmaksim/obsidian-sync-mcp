@@ -208,8 +208,13 @@ Set `BASE_URL` to the tunnel URL when using authentication.
 | `list_tags` | List all tags in the vault with counts — use to discover tags before filtering |
 | `list_notes` | List notes with timestamps. Filter by folder, name, tag, or date. Sort by name or modified. |
 | `search_notes` | Search note text for terms (OR, case-insensitive substrings); paths and frontmatter titles are searched first. Filter by folder, tag, or date. Returns paths with one context line each, never the note body, after a status line that states which CouchDB sequence the index is caught up with. |
-| `delete_note` | Delete a note |
+| `read_notes` | Read up to 20 notes in one call |
+| `read_section` / `edit_section` | Read or edit one section of a note by its heading (replace, append, prepend) |
+| `set_frontmatter` | Set or remove one frontmatter property without rewriting the note |
+| `delete_note` | Soft delete: moves the note to `_Trash/<date>/` (set `TRASH_FOLDER` to change); `permanent=true` deletes for good |
 | `move_note` | Move or rename a note — works across folders, creates destination folders automatically |
+| `rename_folder` | Rename or move a whole folder with its notes and image/PDF attachments; refuses to overwrite |
+| `list_attachments` / `read_attachment` | List and view image and PDF attachments (up to 5 MB) |
 | `get_note_metadata` | Get frontmatter, tags, outgoing links, backlinks, size, and timestamps — navigate the knowledge graph |
 
 Every tool response includes an [Obsidian deep link](https://help.obsidian.md/Extending+Obsidian/Obsidian+URI) (`obsidian://open?vault=...&file=...`) that works on Mac and iOS.

@@ -79,6 +79,8 @@ export function mountPasswordAuth(app: Hono, baseUrl: string, password: string, 
     const tokens = new Map<string, TokenRecord>();
     const refreshTokens = new Map<string, TokenRecord>();
     const clients = new Map<string, RegisteredClient>();
+    const recentlyRotated = new Map<string, { record: TokenRecord; at: number }>();
+    const ROTATION_GRACE_MS = 5 * 60 * 1000;
 
     // Cleanup expired pending auths and CSRF tokens
     function cleanupPending() {
@@ -421,6 +423,19 @@ export function mountPasswordAuth(app: Hono, baseUrl: string, password: string, 
 
         if (grantType === "refresh_token") {
             const refreshToken = body["refresh_token"] as string;
+            // Grace window: a client that retries with a just-rotated refresh
+            // token (parallel sessions, lost response) gets the same new pair
+            // instead of invalid_grant, so the connector is not logged out.
+            const rotated = recentlyRotated.get(refreshToken);
+            if (rotated && Date.now() - rotated.at < ROTATION_GRACE_MS && refreshTokens.has(rotated.record.refreshToken)) {
+                console.log("Auth: refresh_token reused within grace window, returning current pair");
+                return c.json({
+                    access_token: rotated.record.accessToken,
+                    token_type: "Bearer",
+                    expires_in: Math.max(1, Math.floor((rotated.record.expiresAt - Date.now()) / 1000)),
+                    refresh_token: rotated.record.refreshToken,
+                });
+            }
             const old = refreshTokens.get(refreshToken);
             if (!old) {
                 console.warn("Auth: /oauth/token refresh_token unknown");
@@ -445,10 +460,13 @@ export function mountPasswordAuth(app: Hono, baseUrl: string, password: string, 
                 refreshToken: newRefreshToken,
                 clientId: old.clientId,
                 expiresAt: Date.now() + TOKEN_EXPIRY_MS,
-                refreshExpiresAt: old.refreshExpiresAt, // keep original expiry
+                refreshExpiresAt: Date.now() + REFRESH_EXPIRY_MS, // sliding: expires only after N days of inactivity
             };
             tokens.set(accessToken, record);
             refreshTokens.set(newRefreshToken, record);
+            const now = Date.now();
+            for (const [k, v] of recentlyRotated) if (now - v.at >= ROTATION_GRACE_MS) recentlyRotated.delete(k);
+            recentlyRotated.set(refreshToken, { record, at: now });
             await persist();
 
             return c.json({

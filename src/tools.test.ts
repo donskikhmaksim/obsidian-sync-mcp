@@ -16,8 +16,10 @@ test("read_note declares anthropic/maxResultSizeChars so Claude Code returns who
     assert.ok(READ_NOTE_MAX_RESULT_SIZE_CHARS > 50_000 && READ_NOTE_MAX_RESULT_SIZE_CHARS <= 500_000);
 });
 
-test("no other tool carries the annotation", () => {
-    for (const tool of captureTools().filter((t) => t.name !== "read_note")) {
+test("read_notes carries the same annotation; no other tool does", () => {
+    const readNotes = captureTools().find((t) => t.name === "read_notes");
+    assert.equal(readNotes?._meta?.["anthropic/maxResultSizeChars"], READ_NOTE_MAX_RESULT_SIZE_CHARS);
+    for (const tool of captureTools().filter((t) => t.name !== "read_note" && t.name !== "read_notes")) {
         assert.equal(tool._meta, undefined, `${tool.name} should not declare _meta`);
     }
 });

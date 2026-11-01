@@ -3,8 +3,8 @@ import { dirname, resolve, sep } from "path";
 import { realpathSync } from "fs";
 import { glob } from "fs/promises";
 import { parseFrontmatterAndLinks } from "./parse.js";
-import { validateNotePath, isValidNotePath } from "./note-path.js";
-import type { VaultBackend, NoteInfo, NoteListing } from "./vault-backend.js";
+import { validateNotePath, isValidNotePath, validateAttachmentPath, isValidAttachmentPath, ATTACHMENT_MIME_TYPES } from "./note-path.js";
+import type { VaultBackend, NoteInfo, NoteListing, AttachmentListing } from "./vault-backend.js";
 
 export class LocalVault implements VaultBackend {
     private root: string;
@@ -160,4 +160,56 @@ export class LocalVault implements VaultBackend {
         return results.sort((a, b) => a.path.localeCompare(b.path));
     }
 
+
+    async listAttachments(folder?: string): Promise<AttachmentListing[]> {
+        if (folder && !folder.endsWith("/") && !folder.endsWith("\\")) folder += "/";
+        const searchDir = folder ? await this.safePath(folder) : this.root;
+        const exts = Object.keys(ATTACHMENT_MIME_TYPES);
+        const found: string[] = [];
+        try {
+            for await (const entry of glob("**/*.*", { cwd: searchDir })) {
+                const full = folder ? `${folder}${entry}` : entry;
+                if (!exts.includes(full.slice(full.lastIndexOf(".") + 1).toLowerCase())) continue;
+                if (!isValidAttachmentPath(full)) continue;
+                found.push(full);
+            }
+        } catch {
+            return [];
+        }
+        const results = await Promise.all(
+            found.map(async (p) => {
+                try {
+                    const s = await stat(resolve(this.root, p));
+                    return s.isFile() ? { path: p, size: s.size, mtime: s.mtimeMs } : null;
+                } catch {
+                    return null;
+                }
+            }),
+        );
+        return results.filter((r): r is AttachmentListing => r !== null).sort((a, b) => a.path.localeCompare(b.path));
+    }
+
+    async readAttachment(path: string): Promise<Uint8Array | null> {
+        validateAttachmentPath(path);
+        const fullPath = await this.safePath(path);
+        try {
+            return new Uint8Array(await readFile(fullPath));
+        } catch {
+            return null;
+        }
+    }
+
+    async moveAttachment(from: string, to: string): Promise<boolean> {
+        validateAttachmentPath(from);
+        validateAttachmentPath(to);
+        const fromPath = await this.safePath(from);
+        const toPath = await this.safePath(to);
+        try {
+            await mkdir(dirname(toPath), { recursive: true });
+            await rename(fromPath, toPath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
 }

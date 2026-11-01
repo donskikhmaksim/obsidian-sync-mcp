@@ -12,6 +12,12 @@ export interface NoteListing {
     mtime: number;
 }
 
+export interface AttachmentListing {
+    path: string;
+    size: number;
+    mtime: number;
+}
+
 export interface VaultBackend {
     init(): Promise<void>;
     close(): Promise<void>;
@@ -22,6 +28,12 @@ export interface VaultBackend {
     getMetadata(path: string): Promise<NoteInfo | null>;
     listNotes(folder?: string): Promise<string[]>;
     listNotesWithMtime(folder?: string): Promise<NoteListing[]>;
+    /** Image and PDF files (see note-path.ts ATTACHMENT_MIME_TYPES). */
+    listAttachments?(folder?: string): Promise<AttachmentListing[]>;
+    /** Raw bytes of an attachment, or null when absent. */
+    readAttachment?(path: string): Promise<Uint8Array | null>;
+    /** Move an attachment; false when the source is absent. */
+    moveAttachment?(from: string, to: string): Promise<boolean>;
     watchChanges?(callback: (path: string, content: string | null, mtime?: number, seq?: string | number) => void): void;
     /**
      * Catch up on changes since a sequence. Returns the new sequence. CouchDB only.

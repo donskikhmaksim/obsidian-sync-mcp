@@ -4,14 +4,15 @@
 
 import { DirectFileManipulator } from "../lib/livesync-commonlib/src/API/DirectFileManipulator.ts";
 import type { DirectFileManipulatorOptions } from "../lib/livesync-commonlib/src/API/DirectFileManipulator.ts";
-import { createTextBlob } from "../lib/livesync-commonlib/src/common/utils.ts";
+import { createTextBlob, createBinaryBlob, isTextDocument } from "../lib/livesync-commonlib/src/common/utils.ts";
+import { decodeBinary } from "../lib/livesync-commonlib/src/string_and_binary/convert.ts";
 import type { FilePathWithPrefix } from "../lib/livesync-commonlib/src/common/types.ts";
 import type { MetaEntry } from "../lib/livesync-commonlib/src/API/DirectFileManipulatorV2.ts";
 import { isPathProbablyObfuscated, decrypt } from "octagonal-wheels/encryption/encryption";
 import { clearHandlers } from "../lib/livesync-commonlib/src/replication/SyncParamsHandler.ts";
 import { parseFrontmatterAndLinks } from "./parse.js";
-import type { VaultBackend, NoteInfo, NoteListing } from "./vault-backend.js";
-import { validateNotePath, isValidNotePath } from "./note-path.js";
+import type { VaultBackend, NoteInfo, NoteListing, AttachmentListing } from "./vault-backend.js";
+import { validateNotePath, isValidNotePath, validateAttachmentPath, isValidAttachmentPath } from "./note-path.js";
 import { deriveOrImportIdKey } from "../lib/livesync-commonlib/src/common/idDerivation.ts";
 import { idDerivationOptions } from "./id-derivation-config.js";
 import { deriveContent } from "./index-sync.js";
@@ -368,4 +369,49 @@ export class Vault implements VaultBackend {
         return results.sort((a, b) => a.path.localeCompare(b.path));
     }
 
+
+    async listAttachments(folder?: string): Promise<AttachmentListing[]> {
+        if (folder && !folder.endsWith("/")) folder += "/";
+        const results: AttachmentListing[] = [];
+        for await (const doc of this.manipulator.enumerateAllNormalDocs({ metaOnly: true })) {
+            const entry = doc as MetaEntry;
+            if (entry.deleted) continue;
+            let path: string = entry.path ?? "";
+            if (isPathProbablyObfuscated(path) && this.passphrase) {
+                try { path = await decrypt(path, this.passphrase, false); } catch { continue; }
+            }
+            if (!isValidAttachmentPath(path)) continue;
+            if (folder && !path.startsWith(folder)) continue;
+            results.push({ path, size: entry.size ?? 0, mtime: entry.mtime ?? 0 });
+        }
+        return results.sort((a, b) => a.path.localeCompare(b.path));
+    }
+
+    async readAttachment(path: string): Promise<Uint8Array | null> {
+        validateAttachmentPath(path);
+        const entry = await this.manipulator.get(path as FilePathWithPrefix);
+        if (!entry || !("data" in entry)) return null;
+        if (isTextDocument(entry as any)) {
+            // SVG is stored as text by LiveSync.
+            const data = (entry as any).data;
+            return new TextEncoder().encode(Array.isArray(data) ? data.join("") : String(data));
+        }
+        return new Uint8Array(decodeBinary((entry as any).data));
+    }
+
+    async moveAttachment(from: string, to: string): Promise<boolean> {
+        validateAttachmentPath(from);
+        validateAttachmentPath(to);
+        const entry = await this.manipulator.get(from as FilePathWithPrefix);
+        if (!entry || !("data" in entry)) return false;
+        clearHandlers();
+        const text = isTextDocument(entry as any);
+        const data = (entry as any).data;
+        const blob = text
+            ? createTextBlob(Array.isArray(data) ? data : [String(data)])
+            : createBinaryBlob(decodeBinary(data));
+        const wrote = await this.manipulator.put(to, blob, { ctime: entry.ctime, mtime: Date.now(), size: entry.size });
+        if (!wrote) return false;
+        return await this.manipulator.delete(from);
+    }
 }

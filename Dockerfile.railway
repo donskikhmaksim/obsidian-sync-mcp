@@ -1,0 +1,24 @@
+# Railway image built from source (fork deploy). The main Dockerfile expects a
+# prebuilt dist/ from CI; this one builds it, so Railway can deploy straight
+# from the GitHub repo.
+FROM node:22-bookworm AS build
+WORKDIR /src
+COPY . .
+# Railway may not check out git submodules; fetch the pinned commonlib if absent.
+ARG COMMONLIB_COMMIT=f9f07e97bb4e46039d31ec0bfbaa45dbea0e2a75
+RUN if [ ! -f lib/livesync-commonlib/package.json ]; then \
+      rm -rf lib/livesync-commonlib && \
+      git clone https://github.com/vrtmrz/livesync-commonlib.git lib/livesync-commonlib && \
+      git -C lib/livesync-commonlib checkout "$COMMONLIB_COMMIT"; \
+    fi
+RUN npm ci --ignore-scripts && npm run build
+
+FROM node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+COPY --from=build /src/dist/ dist/
+RUN mkdir -p /data && chown node:node /data
+USER node
+EXPOSE 8787
+CMD ["node", "dist/main.js"]
